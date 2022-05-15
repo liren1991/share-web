@@ -110,7 +110,7 @@ public class GetDataController {
     }
 
     @RequestMapping("/OpenHigherProbability.html")
-    public void OpenHigherProbability(@RequestParam(value = "type") Integer type)  {
+    public void OpenHigherProbability(@RequestParam(value = "type") Integer type) {
         List<Symbol> symbolList = symbolMapper.listSymbolBond();
         Set<Integer> set = new HashSet<>();
         Map<Integer, List<CompareEntity>> compareEntityMap = new HashMap<>();
@@ -132,35 +132,23 @@ public class GetDataController {
             }
         }
 
-
         ArrayList<Integer> indexList = new ArrayList<>(compareEntityMap.keySet());
         indexList.sort(Comparator.reverseOrder());
 
         for (Integer key : indexList) {
             List<CompareEntity> tempList = compareEntityMap.get(key);
-            ComputeEntity computeEntity = new ComputeEntity();
-            computeEntity.setProbability(key);
-            computeEntity.setSymbol(tempList.get(0).getSymbol());
 
+            double openHigher = 0, nextHigh = 0 , average = 0;
             for (CompareEntity item : tempList) {
-                computeEntity.getDayStrList().add(dateFormat.format(item.getDay()));
                 if (item.getNextOpen() > item.getClose())
-                    computeEntity.setHighOpenCount(computeEntity.getHighOpenCount() + 1);
-                else
-                    computeEntity.setLowOpenCount(computeEntity.getLowOpenCount() + 1);
-
+                    openHigher++;
                 if (item.getNextHigh() > item.getClose()) {
-                    computeEntity.setHighCount(computeEntity.getHighOpenCount() + 1);
-                    int intValue = new BigDecimal(item.getNextHigh()).subtract(new BigDecimal(item.getClose())).divide(new BigDecimal(item.getClose()), 2, BigDecimal.ROUND_HALF_UP).multiply(decimal).intValue();
-                    computeEntity.setHighOpenPointTotal(intValue);
-                } else {
-                    computeEntity.setLowCount(computeEntity.getLowOpenCount() + 1);
-                    int intValue = new BigDecimal(item.getOpen()).subtract(new BigDecimal(item.getClose())).divide(new BigDecimal(item.getClose()), 2, BigDecimal.ROUND_HALF_UP).multiply(decimal).intValue();
-                    computeEntity.setLowOpenPointTotal(intValue);
+                    nextHigh++;
+                    average += (item.getNextHigh().doubleValue()-item.getClose() ) / item.getClose() ;
                 }
             }
-            if (computeEntity.getProbability() > type)
-                System.out.println(gson.toJson(computeEntity));
+            logger.info("上隐线点位 {} : 总次数{},  高开概率 {} , 变红概率 {} ,  变红平均点位 {}", key,tempList.size(), openHigher / tempList.size() * 100,
+                    nextHigh / tempList.size() * 100 , average / tempList.size() * 100);
         }
         System.out.println();
     }
