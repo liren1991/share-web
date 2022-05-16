@@ -13,6 +13,8 @@ import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -23,9 +25,13 @@ import javax.annotation.Resource;
 import java.io.IOException;
 import java.lang.reflect.Type;
 import java.math.BigDecimal;
+import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.URL;
 import java.text.SimpleDateFormat;
 import java.util.*;
+
+import static com.example.shareweb.Constant.转债详情页面;
 
 @RestController
 public class GetDataController {
@@ -57,6 +63,15 @@ public class GetDataController {
                 if (symbols != null && symbols.size() > 0) {
                     for (Symbol symbol : symbols) {
                         try {
+                            symbol.setStatus(1);
+                            // 新增转债代号
+                            symbolMapper.addSymbol(symbol);
+                            // 新增转债对应正股代号
+                            Document parse = Jsoup.parse(new URL(String.format(转债详情页面, symbol.getSymbol())), 1000 * 10);
+                            String string = parse.toString();
+                            String stockSymbols = string.substring(string.indexOf("var relatedStock =") + "var relatedStock =".length() + 1, string.indexOf("//可转债相关股票") - 1);
+                            symbol.setSymbol(stockSymbols.replace("'",""));
+                            symbol.setStatus(2);
                             symbolMapper.addSymbol(symbol);
                         } catch (Exception e) {
                             logger.info("添加股票代码失败：{}, 名称： {}", symbol.getSymbol(), symbol.getName());
@@ -109,8 +124,11 @@ public class GetDataController {
         System.out.println("初始化完成");
     }
 
+    /**
+     * 统计下影线第二天高开或高走 概率
+     */
     @RequestMapping("/OpenHigherProbability.html")
-    public void OpenHigherProbability(@RequestParam(value = "type") Integer type) {
+    public void OpenHigherProbability() {
         List<Symbol> symbolList = symbolMapper.listSymbolBond();
         Set<Integer> set = new HashSet<>();
         Map<Integer, List<CompareEntity>> compareEntityMap = new HashMap<>();
@@ -138,17 +156,20 @@ public class GetDataController {
         for (Integer key : indexList) {
             List<CompareEntity> tempList = compareEntityMap.get(key);
 
-            double openHigher = 0, nextHigh = 0 , average = 0;
+            double openHigher = 0, nextHigh = 0, average = 0, lowPoint = 0;
             for (CompareEntity item : tempList) {
                 if (item.getNextOpen() > item.getClose())
                     openHigher++;
                 if (item.getNextHigh() > item.getClose()) {
                     nextHigh++;
-                    average += (item.getNextHigh().doubleValue()-item.getClose() ) / item.getClose() ;
+                    average += (item.getNextHigh().doubleValue() - item.getClose()) / item.getClose();
+                } else {
+                    lowPoint += (item.getNextLow().doubleValue() - item.getClose()) / item.getClose();
                 }
+
             }
-            logger.info("上隐线点位 {} : 总次数{},  高开概率 {} , 变红概率 {} ,  变红平均点位 {}", key,tempList.size(), openHigher / tempList.size() * 100,
-                    nextHigh / tempList.size() * 100 , average / tempList.size() * 100);
+            logger.info("上隐线点位 {} : 总次数{},  高开概率 {} , 变红概率 {} ,  变红平均点位 {} , 最少亏损点位 {}", key, tempList.size(), openHigher / tempList.size() * 100,
+                    nextHigh / tempList.size() * 100, average / tempList.size() * 100, lowPoint / tempList.size() * 100);
         }
         System.out.println();
     }

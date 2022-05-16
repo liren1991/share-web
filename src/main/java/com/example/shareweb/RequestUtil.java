@@ -22,6 +22,9 @@ public class RequestUtil {
             case 3:
                 httpget.setURI(new URI(String.format(获取当天数据, param)));
                 break;
+            case 4:
+                httpget.setURI(new URI(String.format(转债详情页面, param)));
+                break;
         }
         return httpget;
     }

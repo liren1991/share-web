@@ -26,10 +26,10 @@ public class Share implements Serializable {
     private static BigDecimal temp = new BigDecimal("1000");
     public Share(ShareStr shareStr) throws ParseException {
         this.day = dateFormat.parse(shareStr.getDay());
-        this.open = new BigDecimal(shareStr.getOpen()).multiply(temp).intValue();
-        this.high = new BigDecimal(shareStr.getHigh()).multiply(temp).intValue();
-        this.low = new BigDecimal(shareStr.getLow()).multiply(temp).intValue();
-        this.close = new BigDecimal(shareStr.getClose()).multiply(temp).intValue();
+        this.open = new BigDecimal(shareStr.getOpen()).multiply(temp).intValue()/10;
+        this.high = new BigDecimal(shareStr.getHigh()).multiply(temp).intValue()/10;
+        this.low = new BigDecimal(shareStr.getLow()).multiply(temp).intValue()/10;
+        this.close = new BigDecimal(shareStr.getClose()).multiply(temp).intValue()/10;
 
         String substring = shareStr.getSymbol().substring(2);
         if (substring.startsWith("11") || substring.startsWith("12"))
