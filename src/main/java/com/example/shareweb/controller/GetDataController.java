@@ -10,6 +10,8 @@ import com.google.gson.reflect.TypeToken;
 import org.apache.http.HttpEntity;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
@@ -20,12 +22,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
 import javax.annotation.Resource;
 import java.io.IOException;
 import java.lang.reflect.Type;
 import java.math.BigDecimal;
-import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.text.SimpleDateFormat;
@@ -37,15 +37,10 @@ import static com.example.shareweb.Constant.转债详情页面;
 public class GetDataController {
     public static Gson gson = new Gson();
     Logger logger = LoggerFactory.getLogger(GetDataController.class);
-
     @Resource
     private SymbolMapper symbolMapper;
     @Resource
     private ShareMapper shareMapper;
-    private static final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd");
-    private static final BigDecimal decimal = new BigDecimal(100);
-    ;
-
     // 刷新股票代码
     @RequestMapping("/refresh.html")
     public void refreshSymbol(@RequestParam(name = "requestType", defaultValue = "1") Integer requestType) throws URISyntaxException, IOException {
@@ -70,7 +65,7 @@ public class GetDataController {
                             Document parse = Jsoup.parse(new URL(String.format(转债详情页面, symbol.getSymbol())), 1000 * 10);
                             String string = parse.toString();
                             String stockSymbols = string.substring(string.indexOf("var relatedStock =") + "var relatedStock =".length() + 1, string.indexOf("//可转债相关股票") - 1);
-                            symbol.setSymbol(stockSymbols.replace("'",""));
+                            symbol.setSymbol(stockSymbols.replace("'", ""));
                             symbol.setStatus(2);
                             symbolMapper.addSymbol(symbol);
                         } catch (Exception e) {
@@ -83,12 +78,12 @@ public class GetDataController {
             } while (symbols != null && symbols.size() > 0);
         }
     }
-
+    // 初始化最近两年日成交数据
     @RequestMapping("/initData.html")
     public void initData() throws URISyntaxException, IOException {
         Type type = new TypeToken<List<ShareStr>>() {
         }.getType();
-        List<Symbol> symbolList = symbolMapper.listSymbol();
+        List<Symbol> symbolList = symbolMapper.listSymbol(null);
         SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd");
         try (CloseableHttpClient httpclient = HttpClients.createDefault()) {
             for (Symbol symbol : symbolList) {
@@ -124,53 +119,108 @@ public class GetDataController {
         System.out.println("初始化完成");
     }
 
-    /**
-     * 统计下影线第二天高开或高走 概率
-     */
-    @RequestMapping("/OpenHigherProbability.html")
-    public void OpenHigherProbability() {
-        List<Symbol> symbolList = symbolMapper.listSymbolBond();
-        Set<Integer> set = new HashSet<>();
-        Map<Integer, List<CompareEntity>> compareEntityMap = new HashMap<>();
 
-        List<CompareEntity> compareEntityList = new ArrayList<>();
 
-        for (Symbol symbol : symbolList) {
-            List<Share> shares = shareMapper.listShareBySymbol(Integer.parseInt(symbol.getSymbol().substring(2)));
-            compareEntityList.addAll(OpenHigherModel.getOpenHigherProbability(shares));
-        }
-
-        for (CompareEntity compareEntity : compareEntityList) {
-            if (set.add(compareEntity.getProbability())) {
-                compareEntityList = new ArrayList<>();
-                compareEntityList.add(compareEntity);
-                compareEntityMap.put(compareEntity.getProbability(), compareEntityList);
-            } else {
-                compareEntityMap.get(compareEntity.getProbability()).add(compareEntity);
+    private static final String url = "https://emh5.eastmoney.com/api/KeZhuanZhai/JiBenXinXi/GetJiBenTiaoKuan";
+    private static final String 债券代码 = "BONDCODE";
+    private static final String 债券简称 = "BONDNAME";
+    private static final String 票面利率 = "CURRENTRATE";
+    private static final String 距下一付息日 = "DAYTONXCUPNDATE";
+    private static final String 转股溢价率 = "TOSTOCKMARGIN";
+    private static final String 下一付息日 = "FRSTVALUEDATE";
+    private static final String 余额 = "REMAINVOL";
+    // 获取转债余额
+    @RequestMapping("/getShareDetail.html")
+    public void getShareDetail() {
+        List<Symbol> shares = symbolMapper.listSymbol(1);
+        List<Detail> detailList = getDataList(shares);
+        for (Detail item : detailList) {
+            if (item.remainValue.equals("--"))
+                continue;
+            String[] split = item.bondCode.split("\\.");
+            try {
+                String symbol = split[1].toLowerCase(Locale.ROOT) + split[0];
+                symbolMapper.updateSymbolRemainVol(Double.parseDouble(item.remainValue.substring(0, item.remainValue.length() - 1)), symbol);
+            } catch (Exception e) {
+                e.printStackTrace();
             }
         }
+    }
 
-        ArrayList<Integer> indexList = new ArrayList<>(compareEntityMap.keySet());
-        indexList.sort(Comparator.reverseOrder());
 
-        for (Integer key : indexList) {
-            List<CompareEntity> tempList = compareEntityMap.get(key);
+    private static List<Detail> getDataList(List<Symbol> shareList) {
+        List<Detail> detailList = new ArrayList<>();
 
-            double openHigher = 0, nextHigh = 0, average = 0, lowPoint = 0;
-            for (CompareEntity item : tempList) {
-                if (item.getNextOpen() > item.getClose())
-                    openHigher++;
-                if (item.getNextHigh() > item.getClose()) {
-                    nextHigh++;
-                    average += (item.getNextHigh().doubleValue() - item.getClose()) / item.getClose();
-                } else {
-                    lowPoint += (item.getNextLow().doubleValue() - item.getClose()) / item.getClose();
+        for (Symbol entity : shareList) {
+            Map<String, String> resultMap = getLiXiEntity(entity.getSymbol().substring(2));
+            if (resultMap == null)
+                continue;
+            Detail detail = new Detail();
+            detail.bondCode = resultMap.get(债券代码);
+            detail.bondName = resultMap.get(债券简称);
+            detail.currentRate = resultMap.get(票面利率);
+            detail.payInterest = resultMap.get(距下一付息日);
+            detail.toStockMargin = resultMap.get(转股溢价率);
+            detail.firstValueDate = resultMap.get(下一付息日);
+            detail.remainValue = resultMap.get(余额);
+            detailList.add(detail);
+        }
+        return detailList;
+    }
+
+    private static Map<String, String> getLiXiEntity(String param) {
+        HashMap<String, Object> resultMap;
+        CloseableHttpClient httpClient = HttpClients.createDefault();
+        CloseableHttpResponse response = null;
+        String result;
+        try {
+            //创建http请求
+            HttpPost httpPost = new HttpPost(url);
+            httpPost.addHeader("Content-Type", "application/json");
+            //创建请求内容
+            String jsonStr = "";
+            if (param.startsWith("11"))
+                jsonStr = "{\"fc\":\"" + param + "01" + "\",\"color\":\"w\"}";
+            else if (param.startsWith("12"))
+                jsonStr = "{\"fc\":\"" + param + "02" + "\",\"color\":\"w\"}";
+
+            StringEntity entity = new StringEntity(jsonStr);
+            httpPost.setEntity(entity);
+            response = httpClient.execute(httpPost);
+            result = EntityUtils.toString(response.getEntity(), "utf-8");
+            resultMap = gson.fromJson(result, HashMap.class);
+            Map map = (Map) resultMap.get("Result");
+            Object jiBenTiaoKuan = map.get("JiBenTiaoKuan");
+            return (Map) jiBenTiaoKuan;
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            //关闭资源
+            if (response != null) {
+                try {
+                    response.close();
+                } catch (IOException ioe) {
+                    ioe.printStackTrace();
                 }
-
             }
-            logger.info("上隐线点位 {} : 总次数{},  高开概率 {} , 变红概率 {} ,  变红平均点位 {} , 最少亏损点位 {}", key, tempList.size(), openHigher / tempList.size() * 100,
-                    nextHigh / tempList.size() * 100, average / tempList.size() * 100, lowPoint / tempList.size() * 100);
+            if (httpClient != null) {
+                try {
+                    httpClient.close();
+                } catch (IOException ioe) {
+                    ioe.printStackTrace();
+                }
+            }
         }
-        System.out.println();
+        return null;
+    }
+
+    private static class Detail {
+        private String bondCode;    // 债券代码
+        private String bondName;    // 债券简称
+        private String currentRate; // 票面利率
+        private String payInterest; // 距下一付息日
+        private String toStockMargin; // 转股溢价率
+        private String firstValueDate; // 下一付息日
+        private String remainValue; //余额
     }
 }

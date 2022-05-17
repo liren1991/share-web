@@ -4,6 +4,7 @@ import com.example.shareweb.entity.Symbol;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
 
@@ -34,9 +35,12 @@ public interface SymbolMapper {
     Integer addSymbol( Symbol Symbol);
 
 
-    @Select(" select symbol from t_symbol  where status = 1")
-    List<Symbol> listSymbol();
+    @Select("<script>  select symbol from t_symbol  <if test='status !=0 '> where status = #{status} </if>  </script>")
+    List<Symbol> listSymbol(@Param("status") Integer status);
 
     @Select(" select symbol from t_symbol  where symbol like 'sh11%' or symbol like 'sz12%' and status = 1")
     List<Symbol> listSymbolBond();
+
+    @Update(" update t_symbol set remain_vol = #{remainVol} where symbol = #{symbol}")
+    Integer updateSymbolRemainVol(@Param("remainVol") Double remainVol , @Param("symbol") String symbol);
 }
